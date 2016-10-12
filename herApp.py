@@ -268,8 +268,8 @@ class MainApplication(tk.Frame):
         self.fullPath = dataList = tkFileDialog.askopenfilename(initialdir=initialdir,
                                                 filetypes=[('JSON files', '*.json')])
         # dataDir = os.path.split(self.fullPath)[0]+'/'
-        velMin = -60
-        velMax = -20
+        velMin = 101.44349784178377
+        velMax = 146.5091110285216
         import herData
         # for the App, dataList must have the full path to the FITS files
         self.data = herData.read(dataList, velMin, velMax)

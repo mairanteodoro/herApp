@@ -331,8 +331,8 @@ class MainApplication(tk.Frame):
         print("++++++")
         print(self.dataList)
         print("++++++")
-        velMin = -40#float(self.curVel)
-        velMax = -40#float(self.curVel)
+        velMin = 102.
+        velMax = 146.
         import herData
         # for the App, dataList must have the full path to the FITS files
         self.data = herData.read(self.dataList, velMin, velMax)
@@ -379,8 +379,8 @@ class MainApplication(tk.Frame):
     def velScale(self):
         self.velVar = tk.StringVar()
         self.velLabel = tk.Label(self.frame1, textvariable=self.velVar)
-        self.velScale = tk.Scale(self.frame1, from_=-500, to=+500,
-                            orient=tk.HORIZONTAL, resolution=20,
+        self.velScale = tk.Scale(self.frame1, from_=102, to=146,
+                            orient=tk.HORIZONTAL, resolution=0.03,
                             sliderlength=20, showvalue=0,
                             length=200, width=20,
                             command=self.onVelScale)
@@ -388,7 +388,7 @@ class MainApplication(tk.Frame):
     # note: 'val' is the new scale value (a str) passed in by tk.Scale() every time the slider moves
     def onVelScale(self, val):
         self.curVel = float(val)
-        self.velVar.set("Velocity: {:+0.0f} km/s".format(float(val)))
+        self.velVar.set("Lambda: {:+0.2f} micron".format(float(val)))
         if (self.data != None):
             self.myCanvas()
 

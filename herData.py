@@ -29,19 +29,22 @@ def getSpec(dic, key=None, value=None, alpha=None, delta=None, boxSide=None):
 
     for index, item in enumerate(fitsname):
 
+        # min/max wavelength has to be read from unit 0
+        hdu00 = fits.getheader(item, 0)
+        # Herschel data has to be read from unit 1
         img0, hdu0 = fits.getdata(item, 1, header=True)
 
         # correcting the orientation of the images
         new_img0 = img0[:,::-1,:]
 
         # velocity
-        vel0 = hdu0.get('VMIN') + hdu0.get('DELV') * np.asarray(range(hdu0.get('NAXIS3')))
+        vel0 = hdu00.get('META_69') + ((hdu00.get('META_70') - hdu00.get('META_69')) / hdu0.get('NAXIS3')) * np.asarray(range(hdu0.get('NAXIS3')))
 
         # image scale in arcsec
         cols = np.linspace(1,hdu0.get('NAXIS1'),hdu0.get('NAXIS1'))
         rows = np.linspace(1,hdu0.get('NAXIS2'),hdu0.get('NAXIS2'))
-        xscale = (hdu0.get('CRPIX1') - cols) * hdu0.get('DELTA')
-        yscale = (rows - hdu0.get('CRPIX2')) * hdu0.get('DELTA')
+        xscale = (hdu0.get('CRPIX1') - cols) * hdu0.get('CDELT1')
+        yscale = (rows - hdu0.get('CRPIX2')) * hdu0.get('CDELT2')
 
         # integrated spectrum
         # spec0 = np.sum(new_img0, axis=(1,2))
@@ -55,7 +58,7 @@ def getSpec(dic, key=None, value=None, alpha=None, delta=None, boxSide=None):
         xloc = (np.where( (xscale - xcoord)**2 == np.min( (xscale - xcoord)**2 ) ))[0][0]
         yloc = (np.where( (yscale - ycoord)**2 == np.min( (yscale - ycoord)**2 ) ))[0][0]
 
-        # full spectrum @ selected position & apertur
+        # full spectrum @ selected position & aperture
         raw_spec00 = np.sum(new_img0[:, yloc-box/2:yloc+box/2, xloc-box/2:xloc+box/2], axis=(1,2)).squeeze()
 
         res["velocity"].append(vel0)
@@ -151,13 +154,20 @@ def read(dataList, velMin, velMax):
 
     for index, item in enumerate(fitsname):
 
-        img0, hdu0 = fits.getdata(item, 0, header=True)
+        # min/max wavelength has to be read from unit 0
+        hdu00 = fits.getheader(item, 0)
+        # Herschel data has to be read from unit 1
+        img0 = fits.getdata(item, 0)
+        hdu0 = fits.getheader(item, 1)
 
         # correcting the orientation of the images
-        new_img0 = img0[:,::-1,:]
+        new_img0 = img0#[:,::-1,:]
 
         # velocity
-        vel0 = hdu0.get('VMIN') + hdu0.get('DELV') * np.asarray(range(hdu0.get('NAXIS3')))
+        # print(hdu00.get('META_69'))
+        # print(hdu00.get('META_70'))
+        # print(hdu0.get('NAXIS3'))
+        vel0 = hdu00.get('META_69') + ((hdu00.get('META_70') - hdu00.get('META_69')) / hdu0.get('NAXIS3')) * np.asarray(range(hdu0.get('NAXIS3')))
 
         # date-obs
         if (item != 'zero.fits') & (item.find('4815') != -1):
@@ -175,8 +185,8 @@ def read(dataList, velMin, velMax):
         # image scale in arcsec
         cols = np.linspace(1,hdu0.get('NAXIS1'),hdu0.get('NAXIS1'))
         rows = np.linspace(1,hdu0.get('NAXIS2'),hdu0.get('NAXIS2'))
-        xscale = (hdu0.get('CRPIX1') - cols) * hdu0.get('DELTA')
-        yscale = (rows - hdu0.get('CRPIX2')) * hdu0.get('DELTA')
+        xscale = (cols - hdu0.get('CRPIX1')) * hdu0.get('CDELT1')
+        yscale = (rows - hdu0.get('CRPIX2')) * hdu0.get('CDELT2')
 
         # integrated spectrum
         # spec0 = np.sum(new_img0, axis=(1,2))
@@ -186,7 +196,7 @@ def read(dataList, velMin, velMax):
 
         # conserving flux *per pixel*
         # (https://montageblog.wordpress.com/2011/06/24/does-montage-conserve-flux-when-changing-the-image-resolution/)
-        raw_sli0 = raw_sli00 * (0.1 / hdu0.get('DELTA'))**2
+        raw_sli0 = raw_sli00 #* (0.1 / hdu0.get('DELTA'))**2
 
         # contains the entire image [index, name, data cube, xscale, yscale, pixscale, lineID]
         # raw_images.append([index, item, raw_sli0, xscale, yscale, hdu0.get('DELTA'), dic_id[index]])
@@ -196,7 +206,124 @@ def read(dataList, velMin, velMax):
         dic["image"].append(raw_sli0)
         dic["xScale"].append(xscale)
         dic["yScale"].append(yscale)
-        dic["pixScale"].append(hdu0.get('DELTA'))
+        dic["pixScale"].append(hdu0.get('CDELT1'))
+
+    # creating a list of ntrans x nepoch elements
+    # that repeats itself after nepoch elements
+    dic["JD"] = (np.tile(tempJD, ntrans)).tolist()
+    dic["MJD"] = (np.tile(tempMJD, ntrans)).tolist()
+    dic["decYr"] = (np.tile(tempdecYr, ntrans)).tolist()
+    dic["Phi"] = (np.tile(tempPhi, ntrans)).tolist()
+
+    # returns a dictionary with all the info needed
+    # dic.keys = {"lineID", "fileName", "image", "xScale", "yScale", "pixScale", "JD", "MJD", "decYr","Phi"}
+    return dic
+
+
+def readAll(dataList):
+
+    import numpy as np
+    import json
+    from astropy.io import fits
+    from astropy.time import Time
+    import astropy.extern.six
+
+    # reading the file with the file names
+    # (must be in JSON format)
+    data = json.load(open(dataList))
+
+    # storing the file names into one single list
+    fitsname = []
+    for i, key in enumerate(data.keys()):
+        for j, value in enumerate(data.values()[i]):
+            fitsname.append(value)
+
+    ntrans = len(data) # number of spectral lines
+    nepoch = len((data.items())[0][1]) # number of observations for each line
+    dic_id = np.repeat(data.keys(), nepoch) # line ID associated with each image
+
+    JD0, period = 2456874.4, 2022.7 # this must be fixed
+    raw_images = []
+    images = []
+    new_images = []
+    dates = []
+    tempJD = []
+    tempMJD = []
+    tempdecYr = []
+    tempPhi = []
+
+    # this is the main dictionary with n keys
+    dic = {
+            "lineID": [],
+            "fileName": [],
+            "image": [],
+            "xScale": [],
+            "yScale": [],
+            "pixScale": [],
+            "JD": [],
+            "MJD": [],
+            "decYr": [],
+            "Phi": []
+    }
+
+    for index, item in enumerate(fitsname):
+
+        # min/max wavelength has to be read from unit 0
+        hdu00 = fits.getheader(item, 0)
+        # Herschel data has to be read from unit 1
+        img0 = fits.getdata(item, 0)
+        hdu0 = fits.getheader(item, 1)
+
+        # correcting the orientation of the images
+        new_img0 = img0#[:,::-1,:]
+
+        # velocity
+        # print(hdu00.get('META_69'))
+        # print(hdu00.get('META_70'))
+        # print(hdu0.get('NAXIS3'))
+
+        # THE WAY TO CALCULATE vel0 NEEDS TO BE
+        # CHANGED IN ORDER TO READ THE FULL ARRAY
+        vel0 = hdu00.get('META_69') + ((hdu00.get('META_70') - hdu00.get('META_69')) / hdu0.get('NAXIS3')) * np.asarray(range(hdu0.get('NAXIS3')))
+
+        # date-obs
+        if (item != 'zero.fits') & (item.find('4815') != -1):
+            date_obs = hdu0.get('DATEOBS')
+            date = Time(date_obs, scale='utc')
+            Phi0 = (date.jd - JD0) / period + 13
+            dates.append([date.jd,date.mjd,date.decimalyear,Phi0])
+            # this will create a list with nepoch elements
+            tempJD.append(date.jd)
+            tempMJD.append(date.mjd)
+            tempdecYr.append(date.decimalyear)
+            tempPhi.append(Phi0)
+
+
+        # image scale in arcsec
+        cols = np.linspace(1,hdu0.get('NAXIS1'),hdu0.get('NAXIS1'))
+        rows = np.linspace(1,hdu0.get('NAXIS2'),hdu0.get('NAXIS2'))
+        xscale = (cols - hdu0.get('CRPIX1')) * hdu0.get('CDELT1')
+        yscale = (rows - hdu0.get('CRPIX2')) * hdu0.get('CDELT2')
+
+        # integrated spectrum
+        # spec0 = np.sum(new_img0, axis=(1,2))
+
+        # entire image @ selected velocity
+        raw_sli00 = np.sum(new_img0[(vel0 >= velMin) & (vel0 <= velMax), :, :], axis=0).squeeze()
+
+        # conserving flux *per pixel*
+        # (https://montageblog.wordpress.com/2011/06/24/does-montage-conserve-flux-when-changing-the-image-resolution/)
+        raw_sli0 = raw_sli00 #* (0.1 / hdu0.get('DELTA'))**2
+
+        # contains the entire image [index, name, data cube, xscale, yscale, pixscale, lineID]
+        # raw_images.append([index, item, raw_sli0, xscale, yscale, hdu0.get('DELTA'), dic_id[index]])
+        # print(dic_id[index], item, raw_sli0.shape, xscale.shape, yscale.shape, hdu0.get('DELTA'))
+        dic["lineID"].append(dic_id[index])
+        dic["fileName"].append(item)
+        dic["image"].append(raw_sli0)
+        dic["xScale"].append(xscale)
+        dic["yScale"].append(yscale)
+        dic["pixScale"].append(hdu0.get('CDELT1'))
 
     # creating a list of ntrans x nepoch elements
     # that repeats itself after nepoch elements
